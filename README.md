@@ -2,7 +2,7 @@
 
 **Split a ride to the airport with other students flying out at the same time.**
 
-> 🚧 In progress: week 4 of 6. See the [plan](docs/PLAN.md). Live demo and screenshots coming in week 5.
+> 🚧 In progress: week 5 of 6. See the [plan](docs/PLAN.md). Live demo and screenshots coming in week 5.
 
 Santa Clara students heading to or from SJC, SFO or OAK over a break add their flight.
 BreakRides matches them with students on nearby flights into groups of up to 4 and shows
@@ -37,9 +37,22 @@ npm run dev                         # open http://localhost:5173
 
 In development, Vite forwards `/api` requests to FastAPI. For production, `npm run build` creates `frontend/dist`, and FastAPI serves it from the same server as the API.
 
+## Deploy (Render + Neon)
+
+`render.yaml` describes the service. In production:
+
+- **Database:** PostgreSQL on [Neon](https://neon.tech) (free tier). Tables come from Alembic migrations (`migrations/`), which run on every start, so schema changes keep existing data.
+- **Email:** `EMAIL_BACKEND=smtp` with a Gmail app password (no domain needed), or `resend` with a verified domain.
+- **Safety:** https-only cookies, deploys only after CI passes, and the visitor's real IP is read from Render's proxy headers so per-IP login limits work.
+
+Secrets (`DATABASE_URL`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `EMAIL_FROM`) are entered in Render's dashboard and never committed.
+
 ## Tests
 
 ```bash
-pytest -v                    # backend
+pytest -v                    # backend (SQLite)
+TEST_DATABASE_URL=postgresql://user:pass@localhost/test pytest   # backend on Postgres
 cd frontend && npm test      # frontend
 ```
+
+CI runs the backend tests on both SQLite and PostgreSQL, and checks that the migrations produce exactly the schema the models describe.
