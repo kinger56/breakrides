@@ -52,9 +52,11 @@ class TripOut(BaseModel):
 
 
 class RiderOut(BaseModel):
-    # First name only: no email or phone until riders confirm (week 4).
     first_name: str
     is_you: bool
+    confirmed: bool
+    # Only once every rider has confirmed (the group is locked).
+    email: str | None = None
 
 
 class GroupOut(BaseModel):
@@ -62,6 +64,8 @@ class GroupOut(BaseModel):
     direction: Direction
     pickup_time: datetime
     matched: bool  # False if nobody else is on a nearby flight yet
+    locked: bool  # everyone confirmed: contact info is shared
+    you_confirmed: bool
     riders: list[RiderOut]
     fare_estimate: int
     cost_per_person: float

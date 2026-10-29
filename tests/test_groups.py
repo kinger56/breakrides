@@ -30,9 +30,10 @@ def test_alone_until_someone_else_books_a_nearby_flight(client):
     group = client.get(f"/api/trips/{trip['id']}/group").json()
     assert group["matched"] is True
     assert group["riders"] == [
-        {"first_name": "Ben", "is_you": True},
-        {"first_name": "Ana", "is_you": False},
+        {"first_name": "Ben", "is_you": True, "confirmed": False, "email": None},
+        {"first_name": "Ana", "is_you": False, "confirmed": False, "email": None},
     ]
+    assert group["locked"] is False
     assert group["cost_per_person"] == 35.0
     assert group["savings_per_person"] == 35.0
 

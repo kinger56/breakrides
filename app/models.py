@@ -63,6 +63,21 @@ class EmailCode(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class RideGroup(Base):
+    """A group every rider confirmed. Locked: its trips leave matching, and
+    members can see each other's contact info."""
+
+    __tablename__ = "ride_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    airport: Mapped[str] = mapped_column(String(3))
+    direction: Mapped[str] = mapped_column(String(12))
+    pickup_time: Mapped[datetime] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+    trips: Mapped[list[Trip]] = relationship(back_populates="group")
+
+
 class Trip(Base):
     __tablename__ = "trips"
     # The database itself rejects bad values, even if a bug skips validation.
@@ -77,5 +92,14 @@ class Trip(Base):
     direction: Mapped[str] = mapped_column(String(12))
     flight_time: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    # Which suggested group this rider said yes to, as its trip ids ("3,7,9").
+    # If the group changes (someone joins or leaves), the ids no longer
+    # match, so the old "yes" stops counting: nobody is committed to riders
+    # they haven't seen.
+    confirmed_group_key: Mapped[str | None] = mapped_column(String(200), default=None)
+    group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ride_groups.id", ondelete="SET NULL"), default=None, index=True
+    )
 
     user: Mapped[User] = relationship(back_populates="trips")
+    group: Mapped[RideGroup | None] = relationship(back_populates="trips")
