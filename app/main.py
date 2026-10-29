@@ -16,9 +16,10 @@ Run locally:  uvicorn app.main:app --reload   (docs at /docs)
 
 from __future__ import annotations
 
+import time
 from datetime import timedelta, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.staticfiles import StaticFiles
@@ -32,17 +33,29 @@ from app.matching import FARE_ESTIMATE, TripRequest, group_for_trip, match
 from app.db import Base, make_engine, make_session_factory, session_scope
 from app.models import LoginSession, Trip, User, utcnow
 from app.schemas import GroupOut, LoginIn, RiderOut, SignupIn, TripIn, TripOut, UserOut
+from app.throttle import Throttle
 
 # The React app, built by `npm run build` in frontend/.
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 SESSION_COOKIE = "session"
 # Flights further out than this are almost certainly typos (wrong year).
 MAX_DAYS_AHEAD = 365
+# Failed logins allowed per 15 minutes: per account (stops guessing one
+# student's password) and per IP address (stops one attacker trying many
+# accounts).
+FAILED_LOGINS_PER_ACCOUNT = 5
+FAILED_LOGINS_PER_IP = 20
+LOGIN_WINDOW_SECONDS = 15 * 60
 
 
-def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_DIST) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    frontend_dist: Path = FRONTEND_DIST,
+    clock: Callable[[], float] = time.monotonic,
+) -> FastAPI:
     """Build the app. Tests call this with their own settings (an in-memory
-    database), so they never touch the real one."""
+    database) and a fake clock, so they never touch the real database or
+    have to actually wait."""
     settings = settings or load_settings()
     engine = make_engine(settings.database_url)
     # Creates missing tables. Fine for now; week 5 switches to Alembic
@@ -52,6 +65,8 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
     app = FastAPI(title="BreakRides")
     app.state.settings = settings
     app.state.session_factory = make_session_factory(engine)
+    app.state.account_throttle = Throttle(FAILED_LOGINS_PER_ACCOUNT, LOGIN_WINDOW_SECONDS, clock)
+    app.state.ip_throttle = Throttle(FAILED_LOGINS_PER_IP, LOGIN_WINDOW_SECONDS, clock)
     _add_routes(app)
     # Serve the built React app at "/", from the same server as the API, so
     # the login cookie works without any cross-site setup. Mounted last, so
@@ -151,12 +166,30 @@ def _add_routes(app: FastAPI) -> None:
         return _user_out(user)
 
     @app.post("/api/auth/login")
-    def login(body: LoginIn, response: Response, db: Session = Depends(get_db)) -> UserOut:
-        user = db.scalar(select(User).where(User.email == body.email.lower()))
+    def login(
+        body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)
+    ) -> UserOut:
+        email = body.email.lower()
+        ip = request.client.host if request.client else "unknown"
+        by_account, by_ip = app.state.account_throttle, app.state.ip_throttle
+        # Checked before the (deliberately slow) password check, so a flood
+        # of guesses can't tie up the server either.
+        wait = max(by_account.retry_after(email), by_ip.retry_after(ip))
+        if wait:
+            raise HTTPException(
+                429,
+                f"Too many failed logins. Try again in {max(1, round(wait / 60))} min.",
+                headers={"Retry-After": str(wait)},
+            )
+
+        user = db.scalar(select(User).where(User.email == email))
         # Same message whether the email or the password is wrong, so the
         # login form can't be used to find out who has an account.
         if user is None or not security.verify_password(body.password, user.password_hash):
+            by_account.record(email)
+            by_ip.record(ip)
             raise HTTPException(401, "Wrong email or password.")
+        by_account.reset(email)
         _start_session(response, user, db, settings)
         return _user_out(user)
 
