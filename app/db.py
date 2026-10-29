@@ -45,7 +45,18 @@ class UTCDateTime(TypeDecorator):
         return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
+def normalize_url(url: str) -> str:
+    """Hosts like Neon and Render hand out "postgres://..." or
+    "postgresql://..." URLs. SQLAlchemy needs to be told which driver to
+    use, and we use psycopg (version 3)."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
 def make_engine(url: str) -> Engine:
+    url = normalize_url(url)
     if url == "sqlite://":
         # In-memory SQLite (tests): one shared connection, or each new
         # connection would get its own empty database.
