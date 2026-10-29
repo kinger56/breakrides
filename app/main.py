@@ -8,6 +8,7 @@ Routes:
   POST   /api/trips         add a flight I need a ride for
   GET    /api/trips         my upcoming trips
   DELETE /api/trips/{id}    remove one of my trips
+  GET    /api/trips/{id}/group  who I'm sharing a ride with for that trip
   GET    /api/health        {"status": "ok"} for the host's health check
 
 Run locally:  uvicorn app.main:app --reload   (docs at /docs)
@@ -21,13 +22,14 @@ from typing import Iterator
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app import security
 from app.config import Settings, load_settings
+from app.matching import FARE_ESTIMATE, TripRequest, group_for_trip, match
 from app.db import Base, make_engine, make_session_factory, session_scope
 from app.models import LoginSession, Trip, User, utcnow
-from app.schemas import LoginIn, SignupIn, TripIn, TripOut, UserOut
+from app.schemas import GroupOut, LoginIn, RiderOut, SignupIn, TripIn, TripOut, UserOut
 
 SESSION_COOKIE = "session"
 # Flights further out than this are almost certainly typos (wrong year).
@@ -201,6 +203,45 @@ def _add_routes(app: FastAPI) -> None:
             raise HTTPException(404, "Trip not found.")
         db.delete(trip)
         db.commit()
+
+    @app.get("/api/trips/{trip_id}/group")
+    def ride_group(
+        trip_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)
+    ) -> GroupOut:
+        trip = db.get(Trip, trip_id)
+        if trip is None or trip.user_id != user.id:
+            raise HTTPException(404, "Trip not found.")
+
+        # Match every upcoming trip on the same route. Groups are worked out
+        # fresh each time, so they can change as people add trips; letting
+        # riders confirm a group (and lock it) comes in week 4.
+        route = db.scalars(
+            select(Trip)
+            .options(joinedload(Trip.user))
+            .where(
+                Trip.airport == trip.airport,
+                Trip.direction == trip.direction,
+                Trip.flight_time > utcnow(),
+            )
+        )
+        requests = [
+            TripRequest(t.id, t.user_id, t.user.first_name, t.airport, t.direction, t.flight_time)
+            for t in route
+        ]
+        group = group_for_trip(match(requests), trip.id)
+        if group is None:  # the trip's flight has already left
+            raise HTTPException(404, "This trip is in the past.")
+
+        return GroupOut(
+            airport=group.airport,
+            direction=group.direction,
+            pickup_time=group.pickup_time.astimezone(timezone.utc),
+            matched=group.size > 1,
+            riders=[RiderOut(first_name=t.first_name, is_you=t.user_id == user.id) for t in group.trips],
+            fare_estimate=FARE_ESTIMATE[group.airport],
+            cost_per_person=group.cost_per_person,
+            savings_per_person=group.savings_per_person,
+        )
 
 
 app = create_app()

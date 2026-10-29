@@ -44,3 +44,20 @@ class TripOut(BaseModel):
     airport: Airport
     direction: Direction
     flight_time: datetime
+
+
+class RiderOut(BaseModel):
+    # First name only: no email or phone until riders confirm (week 4).
+    first_name: str
+    is_you: bool
+
+
+class GroupOut(BaseModel):
+    airport: Airport
+    direction: Direction
+    pickup_time: datetime
+    matched: bool  # False if nobody else is on a nearby flight yet
+    riders: list[RiderOut]
+    fare_estimate: int
+    cost_per_person: float
+    savings_per_person: float
