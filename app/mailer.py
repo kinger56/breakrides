@@ -1,9 +1,12 @@
 """Sending email (the sign-up verification code).
 
-Two backends, chosen with the EMAIL_BACKEND setting:
+Backends, chosen with the EMAIL_BACKEND setting:
   console  prints the email in the server log. For local development
            only: anyone who can read the log can see the codes.
-  resend   sends real email through resend.com's API (free tier).
+  resend   sends real email through resend.com's API (needs your own
+           domain to email anyone but yourself).
+  smtp     sends through any mail server, e.g. Gmail with an app
+           password, which needs no domain (about 500 emails a day).
 
 Routes only ever call `mailer.send(...)`, so tests swap in a fake that
 just records what would have been sent.
@@ -12,6 +15,8 @@ just records what would have been sent.
 from __future__ import annotations
 
 import logging
+import smtplib
+from email.message import EmailMessage
 from typing import Protocol
 
 import httpx
@@ -59,7 +64,38 @@ class ResendMailer:
             raise MailError("The email service rejected the message")
 
 
+class SMTPMailer:
+    def __init__(self, host: str, port: int, username: str, password: str, sender: str):
+        if not (username and password):
+            raise ValueError("EMAIL_BACKEND=smtp needs SMTP_USERNAME and SMTP_PASSWORD")
+        self.host, self.port = host, port
+        self.username, self.password = username, password
+        self.sender = sender
+
+    def send(self, to: str, subject: str, text: str) -> None:
+        message = EmailMessage()
+        message["From"] = self.sender
+        message["To"] = to
+        message["Subject"] = subject
+        message.set_content(text)
+        try:
+            with smtplib.SMTP(self.host, self.port, timeout=10) as server:
+                server.starttls()  # encrypt before sending the password
+                server.login(self.username, self.password)
+                server.send_message(message)
+        except (smtplib.SMTPException, OSError) as exc:
+            logger.error("SMTP send failed (%s)", type(exc).__name__)
+            raise MailError("Couldn't send the email") from exc
+
+
 def make_mailer(settings: Settings) -> Mailer:
     if settings.email_backend == "resend":
         return ResendMailer(settings.resend_api_key, settings.email_from)
+    if settings.email_backend == "smtp":
+        return SMTPMailer(
+            settings.smtp_host, settings.smtp_port,
+            settings.smtp_username, settings.smtp_password, settings.email_from,
+        )
+    if settings.email_backend != "console":
+        raise ValueError(f"Unknown EMAIL_BACKEND {settings.email_backend!r}")
     return ConsoleMailer()
