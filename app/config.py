@@ -1,0 +1,34 @@
+"""Settings, read from environment variables (or a local .env file).
+
+Keeping settings out of the code means the same code runs on a laptop
+(SQLite, plain http) and in production (Postgres, https) with no edits.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+@dataclass(frozen=True)
+class Settings:
+    database_url: str
+    # Only students may sign up: emails must end in @<this domain>.
+    allowed_email_domain: str
+    session_days: int
+    # Browsers only send "secure" cookies over https, so this must be off
+    # for local http development and on in production.
+    secure_cookies: bool
+
+
+def load_settings() -> Settings:
+    return Settings(
+        database_url=os.getenv("DATABASE_URL", "sqlite:///breakrides.db"),
+        allowed_email_domain=os.getenv("ALLOWED_EMAIL_DOMAIN", "scu.edu").lower(),
+        session_days=int(os.getenv("SESSION_DAYS", "30")),
+        secure_cookies=os.getenv("SECURE_COOKIES", "false").lower() == "true",
+    )
