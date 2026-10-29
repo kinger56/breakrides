@@ -68,9 +68,12 @@ def create_app(
     have to actually wait."""
     settings = settings or load_settings()
     engine = make_engine(settings.database_url)
-    # Creates missing tables. Fine for now; week 5 switches to Alembic
-    # migrations so the schema can change without losing data.
-    Base.metadata.create_all(engine)
+    if settings.database_url.startswith("sqlite"):
+        # Local development and tests: just create the tables. Production
+        # (Postgres) gets its tables from Alembic migrations instead
+        # (`alembic upgrade head` runs before every deploy), so schema
+        # changes keep existing data.
+        Base.metadata.create_all(engine)
 
     app = FastAPI(title="BreakRides")
     app.state.settings = settings
