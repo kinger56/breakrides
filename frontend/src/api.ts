@@ -8,6 +8,7 @@ export interface User {
   id: number
   email: string
   first_name: string
+  email_verified: boolean
 }
 
 export interface Trip {
@@ -20,6 +21,8 @@ export interface Trip {
 export interface Rider {
   first_name: string
   is_you: boolean
+  confirmed: boolean
+  email: string | null // only once the group is locked
 }
 
 export interface Group {
@@ -27,6 +30,8 @@ export interface Group {
   direction: Direction
   pickup_time: string
   matched: boolean
+  locked: boolean // everyone confirmed: contact info is shared
+  you_confirmed: boolean
   riders: Rider[]
   fare_estimate: number
   cost_per_person: number
@@ -73,9 +78,13 @@ export const api = {
   login: (email: string, password: string) =>
     request<User>('POST', '/api/auth/login', { email, password }),
   logout: () => request<void>('POST', '/api/auth/logout'),
+  verify: (code: string) => request<User>('POST', '/api/auth/verify', { code }),
+  resendCode: () => request<void>('POST', '/api/auth/resend'),
   trips: () => request<Trip[]>('GET', '/api/trips'),
   addTrip: (airport: Airport, direction: Direction, flight_time: string) =>
     request<Trip>('POST', '/api/trips', { airport, direction, flight_time }),
   deleteTrip: (id: number) => request<void>('DELETE', `/api/trips/${id}`),
   group: (tripId: number) => request<Group>('GET', `/api/trips/${tripId}/group`),
+  confirm: (tripId: number) => request<Group>('POST', `/api/trips/${tripId}/confirm`),
+  leave: (tripId: number) => request<Group>('POST', `/api/trips/${tripId}/leave`),
 }

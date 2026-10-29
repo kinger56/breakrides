@@ -3,6 +3,7 @@ import { api, type Trip, type User } from './api'
 import { AddTripForm } from './components/AddTripForm'
 import { AuthForm } from './components/AuthForm'
 import { TripCard } from './components/TripCard'
+import { VerifyEmail } from './components/VerifyEmail'
 
 export default function App() {
   // undefined = still checking whether we're logged in; null = logged out
@@ -17,7 +18,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (user) api.trips().then(setTrips)
+    if (user?.email_verified) api.trips().then(setTrips)
   }, [user, version])
 
   async function logout() {
@@ -40,7 +41,8 @@ export default function App() {
 
       {user === undefined && <p className="muted">Loading…</p>}
       {user === null && <AuthForm onAuthed={setUser} />}
-      {user && (
+      {user && !user.email_verified && <VerifyEmail user={user} onVerified={setUser} />}
+      {user?.email_verified && (
         <>
           <AddTripForm onAdded={() => setVersion((v) => v + 1)} />
           <h2 className="section">Your flights</h2>

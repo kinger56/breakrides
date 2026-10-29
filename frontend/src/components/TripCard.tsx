@@ -5,6 +5,7 @@ import { formatPacific } from '../time'
 export function TripCard({ trip, onDeleted }: { trip: Trip; onDeleted: (id: number) => void }) {
   const [group, setGroup] = useState<Group | null>(null)
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     let current = true // ignore a late answer if this card has gone away
@@ -14,6 +15,19 @@ export function TripCard({ trip, onDeleted }: { trip: Trip; onDeleted: (id: numb
     )
     return () => { current = false }
   }, [trip.id])
+
+  // Confirm or leave, then show the group as the server now sees it.
+  async function act(action: (id: number) => Promise<Group>) {
+    setError('')
+    setBusy(true)
+    try {
+      setGroup(await action(trip.id))
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function remove() {
     if (!confirm('Remove this flight?')) return
@@ -37,13 +51,17 @@ export function TripCard({ trip, onDeleted }: { trip: Trip; onDeleted: (id: numb
       {error && <p className="error">{error}</p>}
       {!group && !error && <p className="muted">Finding your group…</p>}
       {group && (
-        <div className={group.matched ? 'group matched' : 'group'}>
+        <div className={group.locked ? 'group locked' : group.matched ? 'group matched' : 'group'}>
+          {group.locked && <p className="badge">✓ Ride confirmed</p>}
           <p className="pickup">
             Pickup <strong>{formatPacific(group.pickup_time)}</strong>
           </p>
           <ul className="riders" aria-label="Riders">
             {group.riders.map((r, i) => (
-              <li key={i} className={r.is_you ? 'you' : ''}>{r.is_you ? 'You' : r.first_name}</li>
+              <li key={i} className={r.is_you ? 'you' : ''}>
+                {r.confirmed && <span aria-label="confirmed">✓ </span>}
+                {r.is_you ? 'You' : r.first_name}
+              </li>
             ))}
           </ul>
           {group.matched ? (
@@ -57,6 +75,29 @@ export function TripCard({ trip, onDeleted }: { trip: Trip; onDeleted: (id: numb
               Riding alone is about ${group.fare_estimate}.
             </p>
           )}
+
+          {group.locked ? (
+            <>
+              <p className="muted">Everyone confirmed. Reach out to plan where to meet and who books:</p>
+              <ul className="contacts">
+                {group.riders.filter((r) => !r.is_you && r.email).map((r) => (
+                  <li key={r.email}>
+                    {r.first_name}: <a href={`mailto:${r.email}`}>{r.email}</a>
+                  </li>
+                ))}
+              </ul>
+              <button className="link" disabled={busy} onClick={() => act(api.leave)}>Leave group</button>
+            </>
+          ) : group.matched && group.you_confirmed ? (
+            <p className="muted">
+              You're in. Waiting for the others to confirm; contact info is shared once everyone has.{' '}
+              <button className="link" disabled={busy} onClick={() => act(api.leave)}>Undo</button>
+            </p>
+          ) : group.matched ? (
+            <button className="primary" disabled={busy} onClick={() => act(api.confirm)}>
+              Confirm this group
+            </button>
+          ) : null}
         </div>
       )}
     </article>

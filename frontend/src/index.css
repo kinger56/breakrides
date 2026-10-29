@@ -85,3 +85,11 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .riders li.you { border-color: var(--accent); color: var(--accent); }
 .savings { margin: 0; }
 .group.matched .savings strong { color: var(--good); }
+
+/* Week 4: verification and confirmed groups */
+.notice { color: var(--good); margin: 0; }
+.code-input { font-size: 1.4rem; letter-spacing: 0.4em; text-align: center; font-variant-numeric: tabular-nums; }
+.group.locked { background: var(--good-bg); outline: 2px solid var(--good); outline-offset: -2px; }
+.badge { margin: 0; font-weight: 700; color: var(--good); }
+.contacts { margin: 0; padding-left: 18px; }
+.contacts a { color: var(--accent); overflow-wrap: anywhere; }
