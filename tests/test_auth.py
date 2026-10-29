@@ -85,3 +85,15 @@ def test_raw_token_is_not_in_the_database(client, app):
     with app.state.session_factory() as db:
         stored = db.scalar(select(LoginSession.token_hash))
     assert stored != token
+
+
+def test_serves_built_frontend_without_hiding_the_api(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app.config import Settings
+    from app.main import create_app
+
+    (tmp_path / "index.html").write_text("<title>BreakRides</title>")
+    client = TestClient(create_app(Settings("sqlite://", "scu.edu", 30, False), frontend_dist=tmp_path))
+    assert "BreakRides" in client.get("/").text
+    assert client.get("/api/health").json() == {"status": "ok"}

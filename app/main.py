@@ -17,9 +17,11 @@ Run locally:  uvicorn app.main:app --reload   (docs at /docs)
 from __future__ import annotations
 
 from datetime import timedelta, timezone
+from pathlib import Path
 from typing import Iterator
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -31,12 +33,14 @@ from app.db import Base, make_engine, make_session_factory, session_scope
 from app.models import LoginSession, Trip, User, utcnow
 from app.schemas import GroupOut, LoginIn, RiderOut, SignupIn, TripIn, TripOut, UserOut
 
+# The React app, built by `npm run build` in frontend/.
+FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 SESSION_COOKIE = "session"
 # Flights further out than this are almost certainly typos (wrong year).
 MAX_DAYS_AHEAD = 365
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_DIST) -> FastAPI:
     """Build the app. Tests call this with their own settings (an in-memory
     database), so they never touch the real one."""
     settings = settings or load_settings()
@@ -49,6 +53,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.session_factory = make_session_factory(engine)
     _add_routes(app)
+    # Serve the built React app at "/", from the same server as the API, so
+    # the login cookie works without any cross-site setup. Mounted last, so
+    # /api routes take priority. Skipped if the frontend hasn't been built.
+    if frontend_dist.is_dir():
+        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
     return app
 
 
