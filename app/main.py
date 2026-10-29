@@ -4,6 +4,8 @@ Routes:
   POST   /api/auth/signup   create an account (school email only) and log in
   POST   /api/auth/login    log in
   POST   /api/auth/logout   log out
+  POST   /api/auth/verify   check the 6-digit code emailed at sign-up
+  POST   /api/auth/resend   email a new code
   GET    /api/me            who am I?
   POST   /api/trips         add a flight I need a ride for
   GET    /api/trips         my upcoming trips
@@ -16,6 +18,7 @@ Run locally:  uvicorn app.main:app --reload   (docs at /docs)
 
 from __future__ import annotations
 
+import hmac
 import time
 from datetime import timedelta, timezone
 from pathlib import Path
@@ -31,8 +34,9 @@ from app import security
 from app.config import Settings, load_settings
 from app.matching import FARE_ESTIMATE, TripRequest, group_for_trip, match
 from app.db import Base, make_engine, make_session_factory, session_scope
-from app.models import LoginSession, Trip, User, utcnow
-from app.schemas import GroupOut, LoginIn, RiderOut, SignupIn, TripIn, TripOut, UserOut
+from app.mailer import MailError, Mailer, make_mailer
+from app.models import EmailCode, LoginSession, Trip, User, utcnow
+from app.schemas import GroupOut, LoginIn, RiderOut, SignupIn, TripIn, TripOut, UserOut, VerifyIn
 from app.throttle import Throttle
 
 # The React app, built by `npm run build` in frontend/.
@@ -46,12 +50,16 @@ MAX_DAYS_AHEAD = 365
 FAILED_LOGINS_PER_ACCOUNT = 5
 FAILED_LOGINS_PER_IP = 20
 LOGIN_WINDOW_SECONDS = 15 * 60
+CODE_LIFETIME = timedelta(minutes=15)
+MAX_CODE_ATTEMPTS = 5
+RESEND_EVERY_SECONDS = 60
 
 
 def create_app(
     settings: Settings | None = None,
     frontend_dist: Path = FRONTEND_DIST,
     clock: Callable[[], float] = time.monotonic,
+    mailer: Mailer | None = None,
 ) -> FastAPI:
     """Build the app. Tests call this with their own settings (an in-memory
     database) and a fake clock, so they never touch the real database or
@@ -67,6 +75,8 @@ def create_app(
     app.state.session_factory = make_session_factory(engine)
     app.state.account_throttle = Throttle(FAILED_LOGINS_PER_ACCOUNT, LOGIN_WINDOW_SECONDS, clock)
     app.state.ip_throttle = Throttle(FAILED_LOGINS_PER_IP, LOGIN_WINDOW_SECONDS, clock)
+    app.state.resend_throttle = Throttle(1, RESEND_EVERY_SECONDS, clock)
+    app.state.mailer = mailer or make_mailer(settings)
     _add_routes(app)
     # Serve the built React app at "/", from the same server as the API, so
     # the login cookie works without any cross-site setup. Mounted last, so
@@ -98,6 +108,33 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please log in.")
 
 
+def verified_user(user: User = Depends(current_user)) -> User:
+    """Like current_user, but also requires a verified school email."""
+    if not user.email_verified:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Please verify your email first.")
+    return user
+
+
+def _send_code(user: User, db: Session, mailer: Mailer) -> None:
+    """Replace any old code with a new one and email it."""
+    code = security.new_email_code()
+    db.execute(delete(EmailCode).where(EmailCode.user_id == user.id))
+    db.add(
+        EmailCode(
+            user_id=user.id,
+            code_hash=security.hash_email_code(user.id, code),
+            expires_at=utcnow() + CODE_LIFETIME,
+        )
+    )
+    db.commit()
+    mailer.send(
+        user.email,
+        f"{code} is your BreakRides code",
+        f"Hi {user.first_name},\n\nYour BreakRides verification code is {code}.\n"
+        f"It expires in 15 minutes.\n\nIf you didn't sign up for BreakRides, you can ignore this email.",
+    )
+
+
 def _start_session(response: Response, user: User, db: Session, settings: Settings) -> None:
     token = security.new_session_token()
     db.add(
@@ -119,7 +156,9 @@ def _start_session(response: Response, user: User, db: Session, settings: Settin
 
 
 def _user_out(user: User) -> UserOut:
-    return UserOut(id=user.id, email=user.email, first_name=user.first_name)
+    return UserOut(
+        id=user.id, email=user.email, first_name=user.first_name, email_verified=user.email_verified
+    )
 
 
 def _trip_out(trip: Trip) -> TripOut:
@@ -163,7 +202,49 @@ def _add_routes(app: FastAPI) -> None:
             db.rollback()
             raise HTTPException(409, "An account with that email already exists.")
         _start_session(response, user, db, settings)
+        try:
+            _send_code(user, db, app.state.mailer)
+        except MailError:
+            pass  # the account exists; they can press "Send a new code"
         return _user_out(user)
+
+    @app.post("/api/auth/verify")
+    def verify_email(
+        body: VerifyIn, user: User = Depends(current_user), db: Session = Depends(get_db)
+    ) -> UserOut:
+        if user.email_verified:
+            return _user_out(user)
+        record = db.scalar(select(EmailCode).where(EmailCode.user_id == user.id))
+        if record is None or record.expires_at <= utcnow():
+            raise HTTPException(400, "That code has expired. Send a new one.")
+        if record.attempts >= MAX_CODE_ATTEMPTS:
+            raise HTTPException(429, "Too many wrong tries. Send a new code.")
+        expected = security.hash_email_code(user.id, body.code.strip())
+        if not hmac.compare_digest(expected, record.code_hash):
+            record.attempts += 1
+            db.commit()
+            raise HTTPException(400, "That code isn't right. Check the email and try again.")
+        user.email_verified = True
+        db.delete(record)
+        db.commit()
+        return _user_out(user)
+
+    @app.post("/api/auth/resend", status_code=204)
+    def resend_code(user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
+        if user.email_verified:
+            return
+        key = str(user.id)
+        wait = app.state.resend_throttle.retry_after(key)
+        if wait:
+            raise HTTPException(
+                429, f"Please wait {wait} seconds before asking for another code.",
+                headers={"Retry-After": str(wait)},
+            )
+        app.state.resend_throttle.record(key)
+        try:
+            _send_code(user, db, app.state.mailer)
+        except MailError:
+            raise HTTPException(502, "We couldn't send the email. Try again in a minute.")
 
     @app.post("/api/auth/login")
     def login(
@@ -209,7 +290,7 @@ def _add_routes(app: FastAPI) -> None:
 
     @app.post("/api/trips", status_code=201)
     def add_trip(
-        body: TripIn, user: User = Depends(current_user), db: Session = Depends(get_db)
+        body: TripIn, user: User = Depends(verified_user), db: Session = Depends(get_db)
     ) -> TripOut:
         now = utcnow()
         if body.flight_time <= now:
@@ -248,7 +329,7 @@ def _add_routes(app: FastAPI) -> None:
 
     @app.get("/api/trips/{trip_id}/group")
     def ride_group(
-        trip_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)
+        trip_id: int, user: User = Depends(verified_user), db: Session = Depends(get_db)
     ) -> GroupOut:
         trip = db.get(Trip, trip_id)
         if trip is None or trip.user_id != user.id:

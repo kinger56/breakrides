@@ -40,6 +40,16 @@ def verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(digest.hex(), digest_hex)
 
 
+def new_email_code() -> str:
+    """6 random digits, like "042917". Leading zeros are kept."""
+    return f"{secrets.randbelow(10**6):06d}"
+
+
+def hash_email_code(user_id: int, code: str) -> str:
+    # Mixing in the user id means the same code for two users hashes differently.
+    return hashlib.sha256(f"{user_id}:{code}".encode()).hexdigest()
+
+
 def new_session_token() -> str:
     return secrets.token_urlsafe(32)
 

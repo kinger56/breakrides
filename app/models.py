@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, String
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base, UTCDateTime
@@ -29,6 +29,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
     first_name: Mapped[str] = mapped_column(String(50))
     password_hash: Mapped[str] = mapped_column(String(255))
+    # True once they've entered the code we emailed: proof they own the inbox.
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     trips: Mapped[list[Trip]] = relationship(back_populates="user", cascade="all, delete-orphan")
@@ -46,6 +48,19 @@ class LoginSession(Base):
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
 
     user: Mapped[User] = relationship()
+
+
+class EmailCode(Base):
+    """The 6-digit code emailed to a new user. Stored only as a hash, it
+    expires after 15 minutes and allows 5 wrong tries."""
+
+    __tablename__ = "email_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class Trip(Base):

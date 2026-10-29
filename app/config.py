@@ -23,6 +23,11 @@ class Settings:
     # Browsers only send "secure" cookies over https, so this must be off
     # for local http development and on in production.
     secure_cookies: bool
+    # How verification emails are sent: "console" prints them in the server
+    # log (development only), "resend" sends real email through resend.com.
+    email_backend: str = "console"
+    resend_api_key: str = ""
+    email_from: str = "BreakRides <onboarding@resend.dev>"
 
 
 def load_settings() -> Settings:
@@ -31,4 +36,7 @@ def load_settings() -> Settings:
         allowed_email_domain=os.getenv("ALLOWED_EMAIL_DOMAIN", "scu.edu").lower(),
         session_days=int(os.getenv("SESSION_DAYS", "30")),
         secure_cookies=os.getenv("SECURE_COOKIES", "false").lower() == "true",
+        email_backend=os.getenv("EMAIL_BACKEND", "console"),
+        resend_api_key=os.getenv("RESEND_API_KEY", ""),
+        email_from=os.getenv("EMAIL_FROM", "BreakRides <onboarding@resend.dev>"),
     )

@@ -30,6 +30,11 @@ class UserOut(BaseModel):
     id: int
     email: str
     first_name: str
+    email_verified: bool
+
+
+class VerifyIn(BaseModel):
+    code: str = Field(pattern=r"^\s*\d{6}\s*$")
 
 
 class TripIn(BaseModel):
