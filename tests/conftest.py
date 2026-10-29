@@ -1,5 +1,9 @@
-"""Shared test setup. Every test gets a brand-new app with its own empty
-in-memory database, so tests can't affect each other."""
+"""Shared test setup. Every test gets a brand-new app with an empty
+database, so tests can't affect each other.
+
+By default that's in-memory SQLite. Set TEST_DATABASE_URL to run the same
+tests against PostgreSQL (CI does both), since production uses Postgres.
+"""
 
 import os
 
@@ -15,7 +19,10 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.config import Settings  # noqa: E402
+from app.db import Base  # noqa: E402
 from app.main import create_app  # noqa: E402
+
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "sqlite://")
 
 PASSWORD = "correct-horse-battery"
 
@@ -41,7 +48,14 @@ def mailer():
 
 @pytest.fixture
 def app(mailer):
-    return create_app(Settings("sqlite://", "scu.edu", 30, False), mailer=mailer)
+    app = create_app(Settings(TEST_DATABASE_URL, "scu.edu", 30, False), mailer=mailer)
+    engine = app.state.engine
+    if not TEST_DATABASE_URL.startswith("sqlite"):
+        # A real server keeps data between tests: start each one empty.
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
+    yield app
+    engine.dispose()
 
 
 @pytest.fixture

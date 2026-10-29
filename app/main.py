@@ -77,6 +77,7 @@ def create_app(
 
     app = FastAPI(title="BreakRides")
     app.state.settings = settings
+    app.state.engine = engine
     app.state.session_factory = make_session_factory(engine)
     app.state.account_throttle = Throttle(FAILED_LOGINS_PER_ACCOUNT, LOGIN_WINDOW_SECONDS, clock)
     app.state.ip_throttle = Throttle(FAILED_LOGINS_PER_IP, LOGIN_WINDOW_SECONDS, clock)

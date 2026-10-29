@@ -6,6 +6,7 @@ If someone changes a model without adding a migration, production
 
 import os
 
+import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
@@ -13,6 +14,7 @@ from alembic.migration import MigrationContext
 from sqlalchemy import inspect
 
 from app.db import Base, make_engine
+from tests.conftest import TEST_DATABASE_URL
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
 
@@ -30,6 +32,22 @@ def test_migrations_match_the_models(tmp_path):
     engine = make_engine(url)
     with engine.connect() as connection:
         differences = compare_metadata(MigrationContext.configure(connection), Base.metadata)
+    engine.dispose()
+    assert differences == [], f"models changed without a migration: {differences}"
+
+
+@pytest.mark.skipif(TEST_DATABASE_URL.startswith("sqlite"), reason="needs TEST_DATABASE_URL=postgres")
+def test_migrations_on_postgres():
+    """Same check on real Postgres (CI sets TEST_DATABASE_URL)."""
+    engine = make_engine(TEST_DATABASE_URL)
+    Base.metadata.drop_all(engine)  # tables left by other tests
+    with engine.begin() as connection:
+        connection.exec_driver_sql("DROP TABLE IF EXISTS alembic_version")
+    config = alembic_config(TEST_DATABASE_URL)
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        differences = compare_metadata(MigrationContext.configure(connection), Base.metadata)
+    command.downgrade(config, "base")
     engine.dispose()
     assert differences == [], f"models changed without a migration: {differences}"
 
