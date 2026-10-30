@@ -7,6 +7,8 @@ Routes:
   POST   /api/auth/verify   check the 6-digit code emailed at sign-up
   POST   /api/auth/resend   email a new code
   GET    /api/me            who am I?
+  DELETE /api/me            delete my account and everything in it
+  GET    /api/stats         site-wide totals for the homepage (no personal data)
   POST   /api/trips         add a flight I need a ride for
   GET    /api/trips         my upcoming trips
   DELETE /api/trips/{id}    remove one of my trips
@@ -28,7 +30,7 @@ from typing import Callable, Iterator
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -38,7 +40,18 @@ from app.matching import FARE_ESTIMATE, TripRequest, group_for_trip, match
 from app.db import Base, make_engine, make_session_factory, session_scope
 from app.mailer import MailError, Mailer, make_mailer
 from app.models import EmailCode, LoginSession, RideGroup, Trip, User, utcnow
-from app.schemas import GroupOut, LoginIn, RiderOut, SignupIn, TripIn, TripOut, UserOut, VerifyIn
+from app.schemas import (
+    DeleteAccountIn,
+    GroupOut,
+    LoginIn,
+    RiderOut,
+    SignupIn,
+    StatsOut,
+    TripIn,
+    TripOut,
+    UserOut,
+    VerifyIn,
+)
 from app.throttle import Throttle
 
 # The React app, built by `npm run build` in frontend/.
@@ -394,6 +407,44 @@ def _add_routes(app: FastAPI) -> None:
     @app.get("/api/me")
     def me(user: User = Depends(current_user)) -> UserOut:
         return _user_out(user)
+
+    @app.delete("/api/me", status_code=204)
+    def delete_account(
+        body: DeleteAccountIn,
+        response: Response,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> None:
+        # Ask for the password again, so a borrowed laptop that's still
+        # logged in can't wipe someone's account.
+        if not security.verify_password(body.password, user.password_hash):
+            raise HTTPException(403, "That password isn't right.")
+        for trip in user.trips:
+            if trip.group is not None:
+                _unlock(db, trip.group)  # the other riders go back to matching
+        # Deleted explicitly rather than trusting ON DELETE CASCADE, which
+        # SQLite ignores unless foreign keys are switched on.
+        db.execute(delete(LoginSession).where(LoginSession.user_id == user.id))
+        db.execute(delete(EmailCode).where(EmailCode.user_id == user.id))
+        db.delete(user)  # trips go with it (cascade on the relationship)
+        db.commit()
+        response.delete_cookie(SESSION_COOKIE)
+
+    @app.get("/api/stats")
+    def stats(db: Session = Depends(get_db)) -> StatsOut:
+        students = db.scalar(select(func.count()).select_from(User).where(User.email_verified)) or 0
+        groups = db.scalars(select(RideGroup)).all()
+        riders = sum(len(g.trips) for g in groups)
+        # Everyone in a group of n pays fare/n instead of fare, so the group
+        # saves fare * (n - 1) in total.
+        saved = sum(FARE_ESTIMATE[g.airport] * (len(g.trips) - 1) for g in groups)
+        return StatsOut(
+            students=students,
+            rides_confirmed=len(groups),
+            riders_matched=riders,
+            estimated_savings=saved,
+            feedback_email=settings.feedback_email or None,
+        )
 
     @app.post("/api/trips", status_code=201)
     def add_trip(

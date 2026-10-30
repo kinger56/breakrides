@@ -33,6 +33,20 @@ class UserOut(BaseModel):
     email_verified: bool
 
 
+class DeleteAccountIn(BaseModel):
+    password: str = Field(max_length=200)
+
+
+class StatsOut(BaseModel):
+    """Totals only, nothing that identifies anyone."""
+
+    students: int  # verified accounts
+    rides_confirmed: int  # locked groups
+    riders_matched: int  # trips in a locked group
+    estimated_savings: int  # dollars, from fare estimates
+    feedback_email: str | None
+
+
 class VerifyIn(BaseModel):
     code: str = Field(pattern=r"^\s*\d{6}\s*$")
 
