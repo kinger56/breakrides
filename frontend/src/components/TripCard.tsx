@@ -86,6 +86,9 @@ export function TripCard({ trip, onDeleted }: { trip: Trip; onDeleted: (id: numb
                   </li>
                 ))}
               </ul>
+              <p className="tip">
+                Tip: meet somewhere public on campus, and check the driver and plate in the app before getting in.
+              </p>
               <button className="link" disabled={busy} onClick={() => act(api.leave)}>Leave group</button>
             </>
           ) : group.matched && group.you_confirmed ? (

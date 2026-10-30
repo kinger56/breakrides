@@ -38,6 +38,14 @@ export interface Group {
   savings_per_person: number
 }
 
+export interface Stats {
+  students: number
+  rides_confirmed: number
+  riders_matched: number
+  estimated_savings: number
+  feedback_email: string | null
+}
+
 /** An error the user should see, with the server's message when it has one. */
 export class ApiError extends Error {
   status: number
@@ -73,6 +81,8 @@ function errorMessage(data: { detail?: unknown }, status: number): string {
 
 export const api = {
   me: () => request<User>('GET', '/api/me'),
+  deleteAccount: (password: string) => request<void>('DELETE', '/api/me', { password }),
+  stats: () => request<Stats>('GET', '/api/stats'),
   signup: (email: string, first_name: string, password: string) =>
     request<User>('POST', '/api/auth/signup', { email, first_name, password }),
   login: (email: string, password: string) =>
