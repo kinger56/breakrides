@@ -1,8 +1,15 @@
 # BreakRides
 
+[![tests](https://github.com/kinger56/breakrides/actions/workflows/tests.yml/badge.svg)](https://github.com/kinger56/breakrides/actions/workflows/tests.yml)
+
 **Split a ride to the airport with other students flying out at the same time.**
 
-> 🚧 In progress: week 5 of 6. See the [plan](docs/PLAN.md). Live demo and screenshots coming in week 5.
+**Live: [breakrides.onrender.com](https://breakrides.onrender.com)** (Santa Clara `@scu.edu` emails only)
+<sub>Hosted on Render's free tier: if nobody has visited in 15 minutes, the first load takes about a minute.</sub>
+
+> 🚧 Week 5 of 6: deployed. Next: a pilot with real students before winter break. See the [plan](docs/PLAN.md).
+
+<p align="center"><img src="docs/screenshot-confirmed-group.jpg" alt="A confirmed ride group: pickup time, both riders confirmed, $35 each instead of $70, and the other rider's email" width="300"></p>
 
 Santa Clara students heading to or from SJC, SFO or OAK over a break add their flight.
 BreakRides matches them with students on nearby flights into groups of up to 4 and shows
