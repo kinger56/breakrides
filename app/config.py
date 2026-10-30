@@ -33,6 +33,8 @@ class Settings:
     smtp_port: int = 587
     smtp_username: str = ""
     smtp_password: str = ""
+    # Shown on the site as "Questions or feedback?" (hidden if empty).
+    feedback_email: str = ""
 
 
 def load_settings() -> Settings:
@@ -48,4 +50,5 @@ def load_settings() -> Settings:
         smtp_port=int(os.getenv("SMTP_PORT", "587")),
         smtp_username=os.getenv("SMTP_USERNAME", ""),
         smtp_password=os.getenv("SMTP_PASSWORD", ""),
+        feedback_email=os.getenv("FEEDBACK_EMAIL", ""),
     )
