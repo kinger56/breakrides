@@ -73,6 +73,8 @@ def test_successful_login_clears_earlier_failures(client):
 
 
 def test_one_ip_guessing_many_accounts_is_blocked(client):
-    for i in range(20):
+    from app.main import FAILED_LOGINS_PER_IP
+
+    for i in range(FAILED_LOGINS_PER_IP):
         wrong_login(client, email=f"student{i}@scu.edu")
     assert wrong_login(client, email="someone-new@scu.edu").status_code == 429

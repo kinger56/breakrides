@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app import security
 from app.client_ip import real_client_ip
 from app.config import Settings
-from app.main import create_app
+from app.main import FAILED_LOGINS_PER_IP, SIGNUPS_PER_IP, create_app
 
 ROOT = pathlib.Path(__file__).parent.parent
 RENDER_PROXY = "10.12.0.5"  # Render's internal network (private address)
@@ -73,8 +73,8 @@ def login(client, email, real_ip, fake_ip):
 
 
 def test_faking_a_new_ip_each_time_does_not_dodge_the_ip_limit(proxied_client):
-    # The attack from the live site: 20 failures, each claiming a new IP.
-    for i in range(20):
+    # The attack from the live site: many failures, each claiming a new IP.
+    for i in range(FAILED_LOGINS_PER_IP):
         login(proxied_client, f"student{i}@scu.edu", "73.15.20.9", f"45.33.32.{i}")
     assert login(proxied_client, "new@scu.edu", "73.15.20.9", "45.33.32.200").status_code == 429
     # A different real visitor is unaffected.
@@ -90,11 +90,11 @@ def signup(client, i, real_ip="73.15.20.9"):
 
 
 def test_signups_are_limited_per_ip(proxied_client, mailer):
-    for i in range(5):
+    for i in range(SIGNUPS_PER_IP):
         assert signup(proxied_client, i).status_code == 201
     blocked = signup(proxied_client, 99)
     assert blocked.status_code == 429 and "retry-after" in blocked.headers
-    assert len(mailer.sent) == 5  # the blocked attempt sent no email
+    assert len(mailer.sent) == SIGNUPS_PER_IP  # the blocked attempt sent no email
     assert signup(proxied_client, 100, real_ip="73.15.20.10").status_code == 201
 
 

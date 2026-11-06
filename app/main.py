@@ -62,13 +62,15 @@ SESSION_COOKIE = "session"
 MAX_DAYS_AHEAD = 365
 # Failed logins allowed per 15 minutes: per account (stops guessing one
 # student's password) and per IP address (stops one attacker trying many
-# accounts).
+# accounts). The per-IP limit is higher because campus Wi-Fi puts many
+# students behind a few shared public IPs.
 FAILED_LOGINS_PER_ACCOUNT = 5
-FAILED_LOGINS_PER_IP = 20
+FAILED_LOGINS_PER_IP = 50
 LOGIN_WINDOW_SECONDS = 15 * 60
 # Sign-ups per IP address per hour. Each sign-up sends an email, so without
 # a limit someone could flood inboxes or use up the daily sending quota.
-SIGNUPS_PER_IP = 5
+# High enough for a busy hour of students signing up on shared campus Wi-Fi.
+SIGNUPS_PER_IP = 20
 SIGNUP_WINDOW_SECONDS = 60 * 60
 CODE_LIFETIME = timedelta(minutes=15)
 MAX_CODE_ATTEMPTS = 5
