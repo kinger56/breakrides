@@ -12,10 +12,9 @@ services:
     buildCommand: pip install -r requirements.txt && cd frontend && npm ci && npm run build
     # Free instances can't use Render's pre-deploy step, so migrations run
     # just before the server starts (safe: there's only one instance).
-    # --proxy-headers: Render's proxy sits in front of the app, so read the
-    # visitor's real IP from X-Forwarded-For. Without it, every visitor
-    # looks like the proxy and the per-IP login limit would lock out everyone.
-    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips '*'
+    # The visitor's real IP is worked out in app/client_ip.py from the
+    # proxy headers, skipping entries a visitor could have faked.
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     autoDeployTrigger: checksPass  # only deploy commits whose CI passed
     envVars:
@@ -25,6 +24,8 @@ services:
         value: "true"
       - key: ALLOWED_EMAIL_DOMAIN
         value: scu.edu
+      - key: API_DOCS              # no public /docs page in production
+        value: "false"
       - key: EMAIL_BACKEND
         value: smtp
       # Secrets: Render asks for these once in the dashboard. Never in git.

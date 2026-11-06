@@ -35,6 +35,9 @@ class Settings:
     smtp_password: str = ""
     # Shown on the site as "Questions or feedback?" (hidden if empty).
     feedback_email: str = ""
+    # The interactive API docs at /docs. Handy locally; off in production,
+    # where they'd only advertise every endpoint to strangers.
+    api_docs: bool = True
 
 
 def load_settings() -> Settings:
@@ -51,4 +54,5 @@ def load_settings() -> Settings:
         smtp_username=os.getenv("SMTP_USERNAME", ""),
         smtp_password=os.getenv("SMTP_PASSWORD", ""),
         feedback_email=os.getenv("FEEDBACK_EMAIL", ""),
+        api_docs=os.getenv("API_DOCS", "true").lower() == "true",
     )

@@ -40,6 +40,12 @@ def verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(digest.hex(), digest_hex)
 
 
+# A real scrypt hash of a random password nobody knows. Checked against when
+# a login's email has no account, so the response takes as long as a real
+# wrong-password check.
+DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
+
+
 def new_email_code() -> str:
     """6 random digits, like "042917". Leading zeros are kept."""
     return f"{secrets.randbelow(10**6):06d}"

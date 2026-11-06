@@ -35,6 +35,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app import security
+from app.client_ip import client_ip
 from app.config import Settings, load_settings
 from app.matching import FARE_ESTIMATE, TripRequest, group_for_trip, match
 from app.db import Base, make_engine, make_session_factory, session_scope
@@ -65,6 +66,10 @@ MAX_DAYS_AHEAD = 365
 FAILED_LOGINS_PER_ACCOUNT = 5
 FAILED_LOGINS_PER_IP = 20
 LOGIN_WINDOW_SECONDS = 15 * 60
+# Sign-ups per IP address per hour. Each sign-up sends an email, so without
+# a limit someone could flood inboxes or use up the daily sending quota.
+SIGNUPS_PER_IP = 5
+SIGNUP_WINDOW_SECONDS = 60 * 60
 CODE_LIFETIME = timedelta(minutes=15)
 MAX_CODE_ATTEMPTS = 5
 RESEND_EVERY_SECONDS = 60
@@ -88,13 +93,17 @@ def create_app(
         # changes keep existing data.
         Base.metadata.create_all(engine)
 
-    app = FastAPI(title="BreakRides")
+    docs = "/docs" if settings.api_docs else None
+    app = FastAPI(title="BreakRides", docs_url=docs, redoc_url=None,
+                  openapi_url="/openapi.json" if docs else None)
+    _add_security_headers(app, settings)
     app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = make_session_factory(engine)
     app.state.account_throttle = Throttle(FAILED_LOGINS_PER_ACCOUNT, LOGIN_WINDOW_SECONDS, clock)
     app.state.ip_throttle = Throttle(FAILED_LOGINS_PER_IP, LOGIN_WINDOW_SECONDS, clock)
     app.state.resend_throttle = Throttle(1, RESEND_EVERY_SECONDS, clock)
+    app.state.signup_throttle = Throttle(SIGNUPS_PER_IP, SIGNUP_WINDOW_SECONDS, clock)
     app.state.mailer = mailer or make_mailer(settings)
     _add_routes(app)
     # Serve the built React app at "/", from the same server as the API, so
@@ -103,6 +112,37 @@ def create_app(
     if frontend_dist.is_dir():
         app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
     return app
+
+
+# Content-Security-Policy: the browser may only load scripts, styles and
+# data from this site itself. If an attacker ever got HTML into a page,
+# their <script> or external resources simply wouldn't run.
+CSP = "; ".join([
+    "default-src 'self'",
+    "img-src 'self' data:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",  # can't be shown inside another site (clickjacking)
+])
+
+
+def _add_security_headers(app: FastAPI, settings: Settings) -> None:
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        headers = response.headers
+        headers.setdefault("X-Content-Type-Options", "nosniff")
+        headers.setdefault("X-Frame-Options", "DENY")
+        headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        # Swagger's /docs page loads its code from a CDN, so it gets no CSP;
+        # it's switched off in production anyway (API_DOCS=false).
+        if not request.url.path.startswith("/docs"):
+            headers.setdefault("Content-Security-Policy", CSP)
+        if settings.secure_cookies:  # production: https only, for a year
+            headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return response
 
 
 # --------------------------------------------------------------------------
@@ -304,7 +344,17 @@ def _add_routes(app: FastAPI) -> None:
         return {"status": "ok"}
 
     @app.post("/api/auth/signup", status_code=201)
-    def signup(body: SignupIn, response: Response, db: Session = Depends(get_db)) -> UserOut:
+    def signup(
+        body: SignupIn, request: Request, response: Response, db: Session = Depends(get_db)
+    ) -> UserOut:
+        ip = client_ip(request)
+        wait = app.state.signup_throttle.retry_after(ip)
+        if wait:
+            raise HTTPException(
+                429, "Too many sign-ups from this network. Try again later.",
+                headers={"Retry-After": str(wait)},
+            )
+        app.state.signup_throttle.record(ip)
         email = body.email.lower()
         if not email.endswith("@" + settings.allowed_email_domain):
             raise HTTPException(
@@ -371,7 +421,7 @@ def _add_routes(app: FastAPI) -> None:
         body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)
     ) -> UserOut:
         email = body.email.lower()
-        ip = request.client.host if request.client else "unknown"
+        ip = client_ip(request)
         by_account, by_ip = app.state.account_throttle, app.state.ip_throttle
         # Checked before the (deliberately slow) password check, so a flood
         # of guesses can't tie up the server either.
@@ -386,7 +436,10 @@ def _add_routes(app: FastAPI) -> None:
         user = db.scalar(select(User).where(User.email == email))
         # Same message whether the email or the password is wrong, so the
         # login form can't be used to find out who has an account.
-        if user is None or not security.verify_password(body.password, user.password_hash):
+        # Check a password even when the account doesn't exist, so both
+        # failures take the same time and timing can't reveal who has an account.
+        stored_hash = user.password_hash if user else security.DUMMY_HASH
+        if not security.verify_password(body.password, stored_hash) or user is None:
             by_account.record(email)
             by_ip.record(ip)
             raise HTTPException(401, "Wrong email or password.")
