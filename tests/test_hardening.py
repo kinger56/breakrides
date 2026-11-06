@@ -38,10 +38,21 @@ def test_real_client_ip(xff, peer, expected):
     assert real_client_ip(xff, peer) == expected
 
 
-def test_render_does_not_let_uvicorn_trust_the_header():
-    # uvicorn's --proxy-headers would replace the connecting address with the
-    # (fakeable) leftmost header entry before our code sees it.
-    assert "--proxy-headers" not in (ROOT / "render.yaml").read_text()
+def test_render_turns_off_uvicorns_own_header_handling():
+    # uvicorn replaces the connecting address with the (fakeable) leftmost
+    # header entry *by default*, before our code sees it. Confirmed on Render:
+    # without --no-proxy-headers, a faked header became the "peer" address.
+    start = (ROOT / "render.yaml").read_text()
+    assert "--no-proxy-headers" in start
+    assert " --proxy-headers" not in start
+
+
+# Captured from the live site (diagnostic, 2026-11-06): what Render really sends.
+def test_header_chain_seen_on_render():
+    real, cloudflare, render = "129.210.115.225", "104.23.160.121", "10.31.99.80"
+    assert real_client_ip(f"{real}, {cloudflare}, {render}", "10.31.99.80") == real
+    # The visitor faked an entry: Render puts it first, and it's ignored.
+    assert real_client_ip(f"45.33.32.250,{real}, {cloudflare}, {render}", "10.31.99.80") == real
 
 
 # ---- rate limits use the real IP --------------------------------------------------

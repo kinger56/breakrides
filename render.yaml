@@ -14,7 +14,10 @@ services:
     # just before the server starts (safe: there's only one instance).
     # The visitor's real IP is worked out in app/client_ip.py from the
     # proxy headers, skipping entries a visitor could have faked.
-    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # --no-proxy-headers: uvicorn otherwise rewrites the connection address
+    # from the (fakeable) leftmost X-Forwarded-For entry by default, which
+    # Render's environment enables, before our code ever sees the request.
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT --no-proxy-headers
     healthCheckPath: /api/health
     autoDeployTrigger: checksPass  # only deploy commits whose CI passed
     envVars:
