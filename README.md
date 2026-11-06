@@ -58,7 +58,7 @@ Secrets (`DATABASE_URL`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `EMAIL_FROM`) are ent
 
 ```bash
 pytest -v                    # backend (SQLite)
-TEST_DATABASE_URL=postgresql://user:pass@localhost/test pytest   # backend on Postgres
+TEST_DATABASE_URL=<a local Postgres URL> pytest   # backend on Postgres
 cd frontend && npm test      # frontend
 ```
 

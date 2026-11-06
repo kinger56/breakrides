@@ -24,6 +24,7 @@ from app.main import create_app  # noqa: E402
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "sqlite://")
 
+# Test-only password for fake accounts in a throwaway test database.
 PASSWORD = "correct-horse-battery"
 
 
