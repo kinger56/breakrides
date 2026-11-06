@@ -343,19 +343,6 @@ def _add_routes(app: FastAPI) -> None:
     def health() -> dict:
         return {"status": "ok"}
 
-    # TEMPORARY diagnostic (removed in the next commit): shows the caller
-    # the proxy headers on *their own* request, to learn how Render reports
-    # the visitor's IP. Nothing about anyone else is returned.
-    @app.get("/api/debug/ip", include_in_schema=False)
-    def debug_ip(request: Request) -> dict:
-        names = ("x-forwarded-for", "x-real-ip", "true-client-ip", "cf-connecting-ip",
-                 "x-forwarded-proto", "cf-ray", "x-request-start", "rndr-id")
-        return {
-            "peer": request.client.host if request.client else None,
-            "headers": {n: request.headers.get(n) for n in names if request.headers.get(n)},
-            "computed_client_ip": client_ip(request),
-        }
-
     @app.post("/api/auth/signup", status_code=201)
     def signup(
         body: SignupIn, request: Request, response: Response, db: Session = Depends(get_db)
